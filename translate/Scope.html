@@ -1,0 +1,600 @@
+<html>
+<body>
+<h1>Сделай свой AngularJS: Часть 2 — Scope Inheritance </h1>
+<h2>The Root Scope</h2>
+<p>В этой главе мы увидим, каким путем области взаимодействуют друг с другум используя наследование. Этот механизм позволяет ангуляровским областям получить доступ к их родительским областям, вплоть до корневой.
+</p>
+<cut/>
+<p>Как подклассы в <em>Java</em>, <em>C#</em> или <em>Ruby</em> совместно используют поля и методы объявленные в их родительском классе, так и области в ангуляре используют контент своих родителей. И как наследование классов, наследование областей делает вещи, которые могут затруднять понимание. Такие вещи в скоупах, которые вы не можете увидеть, когда взгляните на код, потому что они прикреплены где то еще. Вы так же можете легко вызвать непреднамеренные изменения манипулируя чем-нибудь в родительском скоупе, за которыми также следят некоторые из его "других" дочерних областей. Наследовании областей — это мощный инструмент, но его нужно использовать осторожно.
+</p>
+<p>Механизм наследования областей в ангуляре на самом деле построен на прототипном наследовании <em>Javascript'а</em>, добавив лишь немного вещей поверх него. Это означает, что вы лучше поймете скоупы ангуляра, когда поймете цепочки прототипов <em>Javascript'а</em>. Это также означает, что бы осуществить наследование скоупов нам не придется писать много кода.</p>
+<p>До сих пор мы работали с одиночным объектом области, который создали используя Scope конструктор: <code>var scope = new Scope();</code> Область созданная таким образом это <strong>root scope</strong>. Она так называется потому, что не имеет родителя и это типичный корень всего дерева дочерних областей.
+</p>
+<p>В действительности вы никогда не будете создавать области таким путем. В ангуляровском приложении есть ровно одна корневая область (доступная через инжектор как <code>$rootScope</code>). Все другие области — это потомки, созданные для контроллеров и директив.
+</p>
+<p>Хотя вы можете сделать столько корневых областей сколько хотите, вместо этого обычно случается так, что вы создаете дочернюю область для существующего области (или позволяете Ангуляру сделать это для вас). Это может быть сделано вызовом функции называемой <strong>$new</strong> на существующей области.
+</p>
+<p>Давайте определим реализацию <code>$new</code>. Перед тем как начнем, сначало добавим вложенные блоки <code>describe</code> в <em>test/scope_spec.js</em> для всех наших тестов относительно наследования. Тестовый файл должен иметь структуру как показано ниже:
+</p>
+<source>
+describe("Scope", function() {
+    describe("digest", function() {
+        // Tests from the previous chapter...
+    });
+    describe("$watchGroup", function() {
+        // Tests from the previous chapter...
+    });
+    describe("inheritance", function() {
+        // Tests for this chapter
+    });
+});
+</source>
+<p>Первая особенность дочерней области в том, что она имеет доступ к свойствам родительской области:
+</p>
+<source>
+it("inherits the parent's properties", function() {
+    var parent = new Scope();
+    parent.aValue = [1, 2, 3];
+    var child = parent.$new();
+    expect(child.aValue).toEqual([1, 2, 3]);
+});
+</source>
+<p>Но это не справедливо в обратном направлении. Свойства определенные в дочерней области не доступны в родительской.
+</p>
+<p>The sharing of the properties has nothing to do with when the properties are defined. Когда свойство определено в родительской области, все существующие дочерние области также получают эти свойства:
+</p>
+<source>
+it("inherits the parent's properties whenever they are defined", function() {
+    var parent = new Scope();
+    var child = parent.$new();
+    parent.aValue = [1, 2, 3];
+    expect(child.aValue).toEqual([1, 2, 3]);
+});
+</source>
+<p>Вы также можете манипулировать свойствами родительской области из дочерней, поскольку обе области фактически указываеют на одно и тоже значение:
+</p>
+<source>
+it("can manipulate a parent scope's property", function() {
+    var parent = new Scope();
+    var child = parent.$new();
+    parent.aValue = [1, 2, 3];
+    child.aValue.push(4);
+    expect(child.aValue).toEqual([1, 2, 3, 4]);
+    expect(parent.aValue).toEqual([1, 2, 3, 4]);
+});
+</source>
+<p>Можете наблюдать свойства родительской обасти из дочерней:
+</p>
+<source>
+it("can watch a property in the parent", function() {
+    var parent = new Scope();
+    var child = parent.$new();
+    parent.aValue = [1, 2, 3];
+    child.counter = 0;
+    child.$watch(
+    function(scope) { return scope.aValue; },
+    function(newValue, oldValue, scope) {
+    scope.counter++;
+    }, true );
+    child.$digest();
+    expect(child.counter).toBe(1);
+    parent.aValue.push(4);
+    child.$digest();
+    expect(child.counter).toBe(2);
+});
+</source>
+<p>Заметьте, что дочерняя область тоже имеет <strong>$$watch</strong> функцию, которую мы определили для <code>Scope.prototype</code>. Это происходит через тотже механизм наследования, как тот, что мы используем для пользовательских атрибутов: поскольку родительская область наследует <code>Scope.prototype</code>, а дочерняя область наследует родительский скоуп, все что определено в scope.prototype доступно в каждой области.
+</p>
+<p>Наконец, все обсуждения выше применимы к иерархии областей произвольной глубины:
+</p>
+<source>
+it("can be nested at any depth", function() {
+    var a = new Scope();
+    var aa = a.$new();
+    var aaa = aa.$new();
+    var aab = aa.$new();
+    var ab = a.$new();
+    var abb = ab.$new();
+    a.value = 1;
+    expect(aa.value).toBe(1);
+    expect(aaa.value).toBe(1);
+    expect(aab.value).toBe(1);
+    expect(ab.value).toBe(1);
+    expect(abb.value).toBe(1);
+    ab.anotherValue = 2;
+    expect(abb.anotherValue).toBe(2);
+    expect(aa.anotherValue).toBeUndefined();
+    expect(aaa.anotherValue).toBeUndefined();
+});
+</source>
+<p>Для всего того что мы указали до сих пор, реализация на самом деле очень проста. Нам просто нужно использовать наследование объектов <em>JavaScript</em>, поскольку ангуляровские области сознательно моделируют то как работает <em>JavaScript</em>. По существу, когда вы создадите дочернюю область ее родитель будет сделан ее протитипом. Создадим функцию <code>$new</code> в нашем прототипе <code>Scope</code>. Она создает дочернюю область для текущей области и возвращает ее.
+</p>
+<source>
+Scope.prototype.$new = function() {
+    var ChildScope = function() { };
+    ChildScope.prototype = this;
+    var child = new ChildScope();
+    return child;
+};
+</source>
+В теле фукнции мы сначало создаем конструктор функции для дочернего скоупа и присваиваем его локальной переменной. Конструктору в действительности не нужно ничего делать, поэтому мы просто делаем его пустой функцией. Затем мы устанавливаем текущую область как прототип для дочерней области (ChildScope). В конце, используя ChildScope конструктор, мы создаем новый объект и возвращаем его. Этой короткой функции достаточно, чтобы сделать все наши тесты успешными.
+?? Вы можете также использовать ES5 сокращенную функцию чтобы построить дочерний скоуп.
+<h2>Теневые атрибуты.</h2>
+<p>Один аспект наследования областей обычно вызывает трудности у новичков ангуляра - это теневые атрибуты. Хотя это прямое следствие использования цепочек прототипов <em>JavaScript</em>'a, все же оно достойно обсуждения. Из наших существующих тестов видно, что когда вы читаете атрибут из области, он будет искаться в цепочке прототипов, найдя его в родительском скоупе, если не существует в текущем. Затем, когда вы присваиваете атрибут к обасти, он доступен только в этой области и ее дочерних, но не в родительских.
+</p>
+<source>
+it("shadows a parent's property with the same name", function() {
+    var parent = new Scope();
+    var child = parent.$new();
+    parent.name = 'Joe';
+    child.name = 'Jill';
+    expect(child.name).toBe('Jill');
+    expect(parent.name).toBe('Joe');
+});
+</source>
+<p>Когда мы припишем атрибут к дочерней области, которая уже имеет его в родительской, это не изменит последнюю. По факту, мы теперь имеем два разных атрибута в цепочке прототипов, оба именованны как "name". Это обычно называют <em>затенением</em>. Для будущих дочерних областей атрибут <strong>name</strong> родителя затенен собственным атрибутом <strong>name</strong>.</p>
+<p>Это общий источник путанницы, и тут конечно же есть важный случай использования изменения состояния в родительской области. Чтобы обойти это, общий паттерн - это обернуть атрибут в объект. Содержимое этого объекта может быть изменено (так же как и в массивах)
+</p>
+<source>
+it("does not shadow members of parent scope's attributes", function() {
+    var parent = new Scope();
+    var child = parent.$new();
+    parent.user = {name: 'Joe'};
+    child.user.name = 'Jill';
+    expect(child.user.name).toBe('Jill');
+    expect(parent.user.name).toBe('Jill');
+});
+</source>
+<p>Причина, по которой это работает в том, что мы не присвоили ничего к дочерней области. Мы просто прочли <strong>user</strong> атрибут из области и применили изменения внутри этого объекта. Оба скоупа имееют ссылку на тот же объект <strong>user</strong>, который чистый <em>JavaScript</em>'овый и ничего не делает с наследованием области. Этот паттерн может быть переименован как <em>Dot Rule</em> (правило точки), ссылаясь на количество точек, которые нужно иметь в выражении, чтобы внести изменения в область. Как сказал <em>Misko Hevery</em>, <blockquote>"Всякий раз когда вы используете ngModel там должна быть точка где-то. Если точки нет, вы делаете не правильно."</blockquote>
+</p>
+<h2>Отдельные наблюдатели.</h2>
+<p>Мы все время видим что мы можем прикрепить вотчеры к дочернему скоупу, хотя дочерний скоуп наследует все родительские методы, включая <strong>$watch</strong> и <strong>$digecst</strong>. Но где вотчеры действительно хранятся и на каком скоупе они вызываются? В нашей текущей реализации все вотчеры фактически хранятся в корневом скоупе. Это потому что мы определили массив <strong>$$watchers</strong> в Scope, корневом конструктуре скоупа. Когда любой дочерний скоуп обращается к массиву <strong>$$watchers</strong> (или любому другому свойству инициализированному в конструкторе), они получают копию корневого скоупа через цепочку прототипов. Это имеет одно существенное значение. Независимо от того, на каком скоупе мы вызываем, мы выполняем все наблюдатели в иерархии скоупов. Это потому что тут только один массив наблюдателей. Один в корневом скоупе. Это не вточности то что мы хотим. То что мы действительно хотим, вызывая $digest это перебирать наблюдателей прикрепленных к скоупу который мы вызвали, и его детях. Не наблюдателей прикрепленных к его родителям или другим детям, которых они могут иметь, вот что в настоящий момент происходит:
+</p>
+<source>
+it("does not digest its parent(s)", function() {
+    var parent = new Scope();
+    var child = parent.$new();
+    parent.aValue = 'abc';
+    parent.$watch(
+    function(scope) { return scope.aValue; },
+    function(newValue, oldValue, scope) {
+    scope.aValueWas = newValue;
+    }
+    );
+    child.$digest();
+    expect(child.aValueWas).toBeUndefined();
+});
+</source>
+<p>Этот тест терпит неудачу потому что когда мы вызываем <code>child.$digest()</code>, мы фактически вызвали наблюдателя прикрепленного к родителю. Исправим это. Трюк в том чтобы присоединить к каждому дочернему скоупу свой собственный массив <code>$$watchers</code>:
+</p>
+<source>
+Scope.prototype.$new = function() {
+    var ChildScope = function() { };
+    ChildScope.prototype = this;
+    var child = new ChildScope();
+    child.$$watchers = [];
+    return child;
+};
+</source>
+<p>Вы возможно заметили что мы сделали атрибут теневым здесь, как обсуждалось в предыдущем разделе. Массив <code>$$watchers</code> в каждом дочернем скоупе перекрывает массив в его родителе. Каждый скоуп в иерархии имеет собственных вотчеров. Когда мы вызываем <code>$digest</code> на скоупе, это будут вотчеры именно на том скоупе на котором мы выполняем.
+</p>
+<h2>Рекурсивный Digest</h2>
+<p>В предыдущей секции мы обсуждали как вызываемый <code>$digest</code> не должен запускать вотчеры выше по иерархии. Он должен, тем не менее, запускать вотчеры вниз по иерархии, на детях скоупа который мы вызвали. Это имеет смысл потому что некоторые из этих вотчеров внизу по иерархии могут наблюдать наши свойства через цепочку прототипов.
+</p>
+<p>Поскольку мы теперь имеем раздельные массивы наблюдателей, в таком состоянии дочерние скоупы не будут digested когда мы вызовем <code>$digested</code> на родителе. Нам нужно пофиксить это изменив <code>$digest</code> так чтобы он работал не только со своим скоупом, но и и с дочерними.
+</p>
+<p>Первая проблема которую имеем это то что скоуп на текущий момент не имеет понятия о том что у него есть дочерние скоупы или нет, и какие они могут быть. Нам нужно в каждом скоупе содержать запись об его дочерних скоупах. Это должно для обоих скоупов, рутового и дочернего. Давайте деражать скоупы в массиве с названием <code>$$children</code>:
+</p>
+<source>
+it("keeps a record of its children", function() {
+    var parent = new Scope();
+    var child1 = parent.$new();
+    var child2 = parent.$new();
+    var child2_1 = child2.$new();
+    expect(parent.$$children.length).toBe(2);
+    expect(parent.$$children[0]).toBe(child1);
+    expect(parent.$$children[1]).toBe(child2);
+    expect(child1.$$children.length).toBe(0);
+    expect(child2.$$children.length).toBe(1);
+    expect(child2.$$children[0]).toBe(child2_1);
+});
+</source>
+<p>Нам нужно инициализировать массив <code>$$children</code> в конструктуре корневого скоупа:
+</p>
+<source>
+function Scope() {
+    this.$$watchers = [];
+    this.$$lastDirtyWatch = null;
+    this.$$asyncQueue = [];
+    this.$$applyAsyncQueue = [];
+    this.$$applyAsyncId = null;
+    this.$$postDigestQueue = [];
+    this.$$children = [];
+    this.$$phase = null;
+}
+</source>
+<p>Затем мы должны добавлять новых детей в этот массив когда они будут созданы. Мы также должны добавить этим детям их собственные массивы <code>$$children</code>(которые затеняет одного в родительском ), так что мы не сталкиваемся с проблемой которую имели с <code>$$watchers</code>. Оба эти изменения входят в <code>$new</code>:
+</p>
+<source>
+Scope.prototype.$new = function() {
+    var ChildScope = function() { };
+    ChildScope.prototype = this;
+    var child = new ChildScope();
+    this.$$children.push(child);
+    child.$$watchers = [];
+    child.$$children = [];
+    return child;
+};
+</source>
+<p>Теперь мы имеем учет для всех детей, и мы можем обсудить их digest. Мы хотим вызывать <code>$digest</code> на родителе и вызвать вотчеры на детях.
+</p>
+<source>
+it("digests its children", function() {
+    var parent = new Scope();
+    var child = parent.$new();
+    parent.aValue = 'abc';
+    child.$watch(
+    function(scope) { return scope.aValue; },
+    function(newValue, oldValue, scope) {
+    scope.aValueWas = newValue;
+    }
+    );
+    parent.$digest();
+    expect(child.aValueWas).toBe('abc');
+});
+</source>
+<p>Обратите внимание как этот тест в основном является отражением теста в последнем разделе, где мы утрверждали что вызов <code>$digest</code> на дочернем скоупе не должен запускать вотчеры на родителе. Чтобы это заработало, нужно изменить $$digestOnce запускать вотчеры через всю иерархию. Для простоты создадим сначало вспомогательную функцию <code>$$everyScope</code> (аналог имени от <code>Array.every</code>) которая вызывает произвольную фукнцию один раз для каждого скоупа в иерархии до тех пор пока не вернется ложное значение.
+</p>
+<source>
+Scope.prototype.$$everyScope = function(fn) {
+    if (fn(this)) {
+        return this.$$children.every(function(child) {
+        return child.$$everyScope(fn);
+    });
+    } else {
+        return false;
+    }
+};
+</source>
+<p>Эта функция выполняет fn один раз для текущего скоупа и затем рекурсивно вызывает себя на каждом дочернем. Теперь мы можем использовать эту функцию в <code>$$digestOnce</code> для формирования внешнего цикла для всей операции.
+</p>
+<source>
+Scope.prototype.$$digestOnce = function() {
+    var dirty;
+    var continueLoop = true;
+    var self = this;
+    this.$$everyScope(function(scope) {
+        var newValue, oldValue;
+        _.forEachRight(scope.$$watchers, function(watcher) {
+            try {
+                if (watcher) {
+                    newValue = watcher.watchFn(scope);
+                    oldValue = watcher.last;
+                    if (!scope.$$areEqual(newValue, oldValue, watcher.valueEq)) {
+                    self.$$lastDirtyWatch = watcher;
+                    watcher.last = (watcher.valueEq ? _.cloneDeep(newValue) : newValue);
+                    watcher.listenerFn(newValue,
+                    (oldValue === initWatchVal ? newValue : oldValue),
+                    scope);
+                    dirty = true;
+                } else if (self.$$lastDirtyWatch === watcher) {
+                    continueLoop = false;
+                    return false;
+                    }
+                }
+            } catch (e) {
+            console.error(e);
+            }
+        });
+        return continueLoop;
+    });
+    return dirty;
+};
+</source>
+<p>Функция <code>$$digestOnce</code> теперь запускается через всю иерархию и возвращает булево значение свидетельствующее о том было ли где либо в иерархии was dirty.
+</p>
+<p>Внутренний цикл итерирует по иерархии областей до тех пор, пока все области не будут посещены или до тех пор пока не достигнет замыкающей оптимизации. Оптимизация отслеживается continueLoop переменной. Если она станет false, мы избегаем от обоих функций loop и <code>$$digestOnce</code>.
+</p>
+<p>Обратите внимание что мы заменили ссылки во внутреннем цикле на конкретную переменную области которая в обработке. Функции наблюдателя должны быть переданы скоупу к которому они действительно прикреплены, а не к скоупу на котором вызван <code>$digest</code>.
+</p>
+<p>Так же заметье что с атрибутом <code>$$lastDirtyWatch</code> мы всегда имеем ввиду самую вернхнюю область. Оптимизация короткого замыкания должна учитывать все вотчеры в иерархии скоупов. Если мы установим <code>$$lastDirtyWatch</code> на текущем скоупе то это затенит родительский атрибут.
+</p>
+<p>Ангуляр на самом деле не имеет массив с названием <code>$$children</code> в скоупе. Вместо этого, если вы посмотрите в исходники, вы увидите что там поддерживаются дети в специальных группах:  <code>$$nextSibling</code>, <code>$$prevSibling</code>, <code>$$childHead</code>, and <code>$$childTail</code>. Эта оптимизация для упрощения добавления и удаления областям без необходимости манипулировать массивом. Функционально они  делают тоже самое что и наш <code>$$children</code> массив.
+</p>
+<h2>Изоляция областей</h2>
+<p>Мы увидели, какие отношения имеются между родительской и дочерней областями, и они очень тесные, когда участвует наследование. Любые атрибуты имеющиеся в родительской области доступны дочерней. Если они окажутся объектом или массивом, дочерняя область может изменить их содержимое. Иногда нам не нужна такая близость. Иногда было бы удобно иметь область, которая является частью иерархии, но не давать ей доступа к ее родителям. Это называется изолированной областью. Идея изолированной области проста: мы создаем область, которая является частью иерархии, как мы видели раньше, но не делаем ей прототипного наследования от родительской области. Она обрезана - или изолирована - от ее родительской цепочки прототипов. Изолированная область может быть создана передав булево значение в функцию <code>$new</code>. Когда параметр <code>true</code>, область будет изолирована. Когда false (или не определено/undefined), прототипное наследование будет использовано. Когда область изолирована, она не имеет доступа к атрибутам ее родителей.
+</p>
+<source>
+it("does not have access to parent attributes when isolated", function() {
+    var parent = new Scope();
+    var child = parent.$new(true);
+    parent.aValue = 'abc';
+    expect(child.aValue).toBeUndefined();
+});
+</source>
+<p>И поскольку доступ к атрибутам родителя отсутствует, естественно нет возможности наблюдать за ними:
+</p>
+<source>
+it("cannot watch parent attributes when isolated", function() {
+    var parent = new Scope();
+    var child = parent.$new(true);
+    parent.aValue = 'abc';
+    child.$watch(
+    function(scope) { return scope.aValue; },
+    function(newValue, oldValue, scope) {
+        scope.aValueWas = newValue;
+    });
+    child.$digest();
+    expect(child.aValueWas).toBeUndefined();
+});
+</source>
+<p>Изоляция области устанавливается внутри <code>$new</code>. Основываясь на переданном аргументе, мы либо создаем её так же как делали раньше, либо создаем независимую область используя конструктор <code>Scope</code>. В обоих случаях новая область добавляется в список дочерних областей текущей области.
+</p>
+<source>
+Scope.prototype.$new = function(isolated) {
+    var child;
+    if (isolated) {
+        child = new Scope();
+    } else {
+        var ChildScope = function() { };
+        ChildScope.prototype = this;
+        child = new ChildScope();
+    }
+    this.$$children.push(child);
+    child.$$watchers = [];
+    child.$$children = [];
+    return child;
+};
+</source>
+<p>Если вы использовали изолированные области с директивами в <em>Angular</em>, вы знаете, что изолированные области обычно не полностью отрезаются от их родителей. Вместо этого вы можете явно определить перечень атрибутов, который будет получен от родительской области. Однако, этот механизм не реализован в областях. Это часть реализации директив. Мы возвратимся к этому обсуждению, когда создадим <em>directive scope linking</em>.
+</p>
+<p>Поскольку мы теперь прервали цепочку наследования прототипов, нам нужно повторно вернуться к <strong>$digest</strong>, <strong>$apply</strong>, <strong>$evalAsync</strong>, и <strong>$applyAsync</strong> обсуждаемым ранее в этой главе. Во первых, нам нужно чтобы <code>$digest</code> проходил вниз по иерархии наследования. Это уже выполняется, поскольку мы включили изолированные области в их родительских <code>$$children</code>. Это значит, что следующий тест будет пройден:
+</p>
+<source>
+it("digests its isolated children", function() {
+    var parent = new Scope();
+    var child = parent.$new(true);
+    child.aValue = 'abc';
+    child.$watch(
+    function(scope) { return scope.aValue; },
+    function(newValue, oldValue, scope) {
+        scope.aValueWas = newValue;
+    }
+    );
+    parent.$digest();
+    expect(child.aValueWas).toBe('abc');
+});
+</source>
+<p>Но в случае с <code>$apply</code>, <code>$evalAsync</code> и <code>$applyAsync</code> мы еще не достигли необходимого. Мы хотим чтобы эти операции начинали digestion с корня, но изолированная область в середине иерархии ломает это предположение, так как иллюстрируют следующие два теста:
+</p>
+<source>
+it("digests from root on $apply when isolated", function() {
+    var parent = new Scope();
+    var child = parent.$new(true);
+    var child2 = child.$new();
+    parent.aValue = 'abc';
+    parent.counter = 0;
+    parent.$watch(
+        function(scope) { return scope.aValue; },
+        function(newValue, oldValue, scope) {
+            scope.counter++;
+        }
+    );
+    child2.$apply(function(scope) { });
+    expect(parent.counter).toBe(1);
+});
+it("schedules a digest from root on $evalAsync when isolated", function(done) {
+    var parent = new Scope();
+    var child = parent.$new(true);
+    var child2 = child.$new();
+    parent.aValue = 'abc';
+    parent.counter = 0;
+    parent.$watch(
+        function(scope) { return scope.aValue; },
+        function(newValue, oldValue, scope) {
+            scope.counter++;
+        }
+    );
+    child2.$evalAsync(function(scope) { });
+    setTimeout(function() {
+        expect(parent.counter).toBe(1);
+        done();
+    }, 50);
+});
+</source>
+<p>Поскольку <strong>$applySync</strong> - это разновидность <strong>$apply</strong>, она подозревается в той же проблеме, и будет исправлена, когда исправится <strong>$apply</strong>.
+</p>
+<p>Обратите внимание, что это в основном такие же тесты, что мы писали ранее, обсуждая <code>$apply</code> и <code>$applyAsync</code>, только в этом случае мы сделали одну из облостей изолированной. Причина, по которой тесты не успешны в том, что мы опираемся на атрибут <code>$root</code> указывая на корень в иеррархии. Не изолированные области имеют этот атрибут наследуя от настоящей корневой области, а изолированные области нет. В действительности, поскольку мы используем <code>Scope</code> конструктор, чтобы создать изолированную область и этот конструктор присваивает <code>$root</code>, каждая изолированная область имеет атрибут <code>$root</code>, который указывает на самого себя. Это не то что мы хотим.
+</p>
+<p>Исправить это достаточно просто. Все что нам нужно сделать это изменить <strong>$new</strong> переназначив <strong>$root</strong> на актуальную корневую область.
+</p>
+<source>
+Scope.prototype.$new = function(isolated) {
+    var child;
+    if (isolated) {
+        child = new Scope();
+        child.$root = this.$root;
+    } else {
+        var ChildScope = function() { };
+        ChildScope.prototype = this;
+        child = new ChildScope();
+    }
+    this.$$children.push(child);
+    child.$$watchers = [];
+    child.$$children = [];
+    return child;
+};
+</source>
+<p>Перед тем как мы получим все, что касается наследования, есть еще одна вещь, которую нужно починить в контексте изолированных областей, и это очереди, в которых мы храним <code>$evalAsync</code>, <code>$applyAsync</code> и <code>$$postDigest</code> функции. Вспомним, что мы скапливаем <code>$$asyncQueue</code> и <code>$$postDigestQueue</code> в <code>$digest</code>, и <code>$$applyAsyncQueue</code> в <code>$$flushApplyAsync</code>. И не предпринимаем дополнительных мер в отношении родительских и дочерних областей. Мы просто предполагаем, что есть один экземпляр каждой очереди, который представляет все поставленные в очередь задачи во всей иерархии.</p>
+<p>Для не изолированных областей случай в точности такой: всякий раз когда мы получаем доступ к одной из очередей из любой области, мы получаем одну и ту же очередь, потому что она наследуется каждой областью. Как и <code>$root</code> ранее, <code>$$asyncQueue</code>, <code>$$applyAsyncQueue</code>, и <code>$$postDigestQueue</code> "прячутся shadowed" в изолированной области локально созданной версией в конструкторе <code>Scope</code>. Это имеет неудачный эффект, такой что запланированная функция в изолированной области с <code>$evalAsync</code> или <code>$$postDigest</code> никогда не выполняется.</p>
+<p>Как и в случае с <code>$root</code>, который мы хотим иметь доступным в каждой области в иерархии, разделить одну копию <code>$$asyncQueue</code> и <code>$$postDigestQueue</code>, не смотря на то, изолированны они или нет. Когда область не изолирована она имеет копию автоматически. Когда она изолирована, нам нужно явно назначить их.</p>
+<source>
+Scope.prototype.$new = function(isolated) {
+    var child;
+    if (isolated) {
+        child = new Scope();
+        child.$root = this.$root;
+        child.$$asyncQueue = this.$$asyncQueue;
+        child.$$postDigestQueue = this.$$postDigestQueue;
+    } else {
+        var ChildScope = function() { };
+        ChildScope.prototype = this;
+        child = new ChildScope();
+    }
+    this.$$children.push(child);
+    child.$$watchers = [];
+    child.$$children = [];
+    return child;
+};
+</source>
+<p>Для <code>$$applyAsyncQueue</code> пробема немного отличается. Поскольку наполнение очереди контролируется атрибутом <code>$$applyAsyncId</code>, и каждая область в иерархии может теперь иметь их собственный экземпляр этого атрибута, мы имеем несколько эффективных <code>$applyAsync</code> процессов, один на каждую изолированную область. Это противоречит цели <code>$applyAsync</code>, которая сливает вызовы <code>$apply</code> вместе. Для начала, мы должны поделиться очередями между областями, так же как мы делали с очередями <code>$evalAsync</code> и <code>$postDigest</code>:</p>
+<source>
+Scope.prototype.$new = function(isolated) {
+    var child;
+    if (isolated) {
+        child = new Scope();
+        child.$root = this.$root;
+        child.$$asyncQueue = this.$$asyncQueue;
+        child.$$postDigestQueue = this.$$postDigestQueue;
+        child.$$applyAsyncQueue = this.$$applyAsyncQueue;
+    } else {
+        var ChildScope = function() { };
+        ChildScope.prototype = this;
+        child = new ChildScope();
+    }
+    this.$$children.push(child);
+    child.$$watchers = [];
+    child.$$children = [];
+    return child;
+};
+</source>
+<p>Во вторых нам нужно поделиться атрибутом <code>$$applyAsyncId</code>. Мы не можем просто скопировать его в <code>$new</code> потому что нам так же нужно иметь возможность назначить его. Но что мы можем сделать, это явно назначить его через <code>$root</code>.</p>
+<source>
+Scope.prototype.$digest = function() {
+    var ttl = 10;
+    var dirty;
+    this.$root.$$lastDirtyWatch = null;
+    this.$beginPhase("$digest");
+    if (this.$root.$$applyAsyncId) {
+        clearTimeout(this.$root.$$applyAsyncId);
+        this.$$flushApplyAsync();
+    }
+    do {
+    while (this.$$asyncQueue.length) {
+        try {
+            var asyncTask = this.$$asyncQueue.shift();
+            asyncTask.scope.$eval(asyncTask.expression);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+    dirty = this.$$digestOnce();
+    if ((dirty || this.$$asyncQueue.length) && !(ttl--)) {
+        throw "10 digest iterations reached";
+    }
+    } while (dirty || this.$$asyncQueue.length);
+    this.$clearPhase();
+    while (this.$$postDigestQueue.length) {
+        try {
+            this.$$postDigestQueue.shift()();
+        } catch (e) {
+            console.error(e);
+        }
+    }
+};
+Scope.prototype.$applyAsync = function(expr) {
+    var self = this;
+    self.$$applyAsyncQueue.push(function() {
+        self.$eval(expr);
+    });
+    if (self.$root.$$applyAsyncId === null) {
+        self.$root.$$applyAsyncId = setTimeout(function() {
+            self.$apply(_.bind(self.$$flushApplyAsync, self));
+        }, 0);
+    }
+};
+Scope.prototype.$$flushApplyAsync = function() {
+    while (this.$$applyAsyncQueue.length) {
+        try {
+            this.$$applyAsyncQueue.shift()();
+        } catch (e) {
+            console.error(e);
+        }
+    }
+    this.$root.$$applyAsyncId = null;
+};
+</source>
+<p>И наконец, мы все настроили правильно!</p>
+<p>В некоторых ситуациях бывает удобно передать другую область в качестве родителя для новой области, сохраняя при этом обычную прототипную цепочку наследования
+</p>
+<source>
+it('can take some other scope as the parent', function() {
+    var prototypeParent = new Scope();
+    var hierarchyParent = new Scope();
+    var child = prototypeParent.$new(false, hierarchyParent);
+    prototypeParent.a = 42;
+    expect(child.a).toBe(42);
+    child.counter = 0;
+    child.$watch(function(scope) {
+        scope.counter++;
+    });
+    prototypeParent.$digest();
+    expect(child.counter).toBe(0);
+    hierarchyParent.$digest();
+    expect(child.counter).toBe(2);
+});
+</source>
+<p>Тут мы создали две родительских области и затем создали дочернюю. Одна из родительских обычная, прототипный родитель новой области. Другая родительская "иерархическая" область, переданная вторым аргументом в <code>$new</code>. Мы проверяем что прототипное наследование между родителем-прототипом и ребенком работает как обычно. Но так же мы проверяем что запуск digest на родителе-прототипе не вызывает вотчер на дочерней области при запуске. Взамен, это происходит когда мы вызываем digest на "иерархическом" родителе. Мы ввели опциональный второй аргумент в $new, который по дефолту принимает значение текущей области <code>this</code>. Затем мы используем эту область, чтобы добавить в нее созданную дочерную область.</p>
+<source>
+Scope.prototype.$new = function(isolated, parent) {
+    var child;
+    parent = parent || this;
+    if (isolated) {
+        child = new Scope();
+        child.$root = parent.$root;
+        child.$$asyncQueue = parent.$$asyncQueue;
+        child.$$postDigestQueue = parent.$$postDigestQueue;
+        child.$$applyAsyncQueue = parent.$$applyAsyncQueue;
+    } else {
+        var ChildScope = function() { };
+        ChildScope.prototype = this;
+        child = new ChildScope();
+    }
+    parent.$$children.push(child);
+    child.$$watchers = [];
+    child.$$children = [];
+    return child;
+};
+</source>
+<p>Мы также используем parent чтобы получить доступ к различным очередям в конструкции изолированной области. Хотя они доступны между всеми областями все равно, это не имеет особого значения, в вопросе о том, что мы используем this или parent, но мы используем последний для ясности. Важная тут область в чью <code>$$children</code> мы добавляем новую область.</p>
+<p>Эта функциональность вводит тонкую разницу между прототипным и иерархическим наследованием цепочек в вашей иерархии областей. В большинстве случаев это врядли имеет значение, и не стоит умственных накладных расходов на отслеживаение двух немного разных иерархии областей. Но когда мы введем директивные включения (transclusion), мы увидим как это может быть иногда полезным.</p>
+<h2>Уничтожение областей.</h2>
+<p>На протяжении жизни типичного <em>Angular</em> приложения, элеметы страницы приходят и уходят когда пользователю представляются разные виды и данные. Это так же означает, что иерархия областей увиличивается и сжимается в течении всего срока службы приложения, при этом добавляются и удаляются области контроллеров и директив.</p>
+<p>В нашей реализации мы можем создать дочерние области, но мы не имеем механизма чтобы удалить их. Растущая иерархия области это не очень удобно когда придет время для вопросов о производительности -  не в последнюю очередь потому что все вотчеры приходят вместе с ней. Поэтому очевидно нам нужен способ для уничтожения областей. Уничтожение скоупа подразумевает собой то что все ее вотчеры удалены и сама область удалена из <code>$$children</code> ее родителя. Поскольку на область больше ничто не будет ссылаться, она в какой-то момент просто перестанет существовать, поскольку сборщик мусора в среде <em>JavaScript</em> утилизирует ее. (Это конечно будет работать если вы не будете иметь внешние ссылки на область или ее вотчеры в самом приложении) Операция уничтожения реализуется в функции области и называется <code>$destroy</code>. Когда мы вызваем ее, она уничтожает область:</p>
+<source>
+it("is no longer digested when $destroy has been called", function() {
+    var parent = new Scope();
+    var child = parent.$new();
+    child.aValue = [1, 2, 3];
+    child.counter = 0;
+    child.$watch(
+    function(scope) { return scope.aValue; },
+    function(newValue, oldValue, scope) {
+        scope.counter++;
+    },
+    true
+    );
+    parent.$digest();
+    expect(child.counter).toBe(1);
+    child.aValue.push(4);
+    parent.$digest();
+    expect(child.counter).toBe(2);
+    child.$destroy();
+    child.aValue.push(5);
+    parent.$digest();
+    expect(child.counter).toBe(2);
+});
+</source>
+<p>Заметьте что <code>$parent</code> имеет префикс в один доллар вместо двух. Это означает, что такие свойства считаются доступными для использования в коде приложения. Тем не менее, такое использование признано антипаттерном из за жесткой связи которую оно вводит между областями. Теперь мы готовы реализовать <code>$destroy</code>. Она найдет текущую область из родительского списка <code>$$children</code> и удалит ее в том случае если область не является корневой и имеет родителя. Также удалит наблюдателей из области.</p>
+</body>
+</html>

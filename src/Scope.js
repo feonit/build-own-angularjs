@@ -1,7 +1,9 @@
 function Scope() {
 	this.$$watchers = [];
 	this.$$asyncQueue = [];
-	this.$$postDigestQueue = [];
+    this.$$applyAsyncQueue = [];
+    this.$$applyAsyncId = null;
+    this.$$postDigestQueue = [];
 	this.$$phase = null;
 	this.$$lastDirtyWatch = null;
 	this.$$children = [];
@@ -80,16 +82,22 @@ Scope.prototype.$$digestOnce = function() {
 Scope.prototype.$digest = function() {
 	var ttl = 10;
 	var dirty;
-	this.$beginPhase("$digest");
-	this.$$lastDirtyWatch = null;
-	do {
+    this.$root.$$lastDirtyWatch = null;
+    this.$beginPhase("$digest");
+
+    if (this.$root.$$applyAsyncId) {
+        clearTimeout(this.$root.$$applyAsyncId);
+        this.$$flushApplyAsync();
+    }
+
+    do {
 		while (this.$$asyncQueue.length) {
 			try {
 				var asyncTask = this.$$asyncQueue.shift();
-				this.$eval(asyncTask.expression);
+                asyncTask.scope.$eval(asyncTask.expression);
 			} catch (e) {
-				(console.error || console.log)(e);
-			}
+                console.error(e);
+            }
 		}
 		dirty = this.$$digestOnce();
 		if (dirty && !(ttl--)) {
@@ -127,7 +135,7 @@ Scope.prototype.$evalAsync = function(expr) {
 	if (!self.$$phase && !self.$$asyncQueue.length) {
 		setTimeout(function() {
 			if (self.$$asyncQueue.length) {
-				self.$digest();
+				self.$root.$digest();
 			}
 		}, 0);
 	}
@@ -138,18 +146,29 @@ Scope.prototype.$$postDigest = function(fn) {
 	this.$$postDigestQueue.push(fn);
 };
 
-Scope.prototype.$new = function(isolated) {
+/**
+ * @param {Boolean} isolated - изолированная область или нет
+ * @param {Scope?} parent - Иногда бывает полезно (когда?) прокинуть в новую область другой parent, сохраняя при этом обычную прототипную цепочку наследования
+ * */
+Scope.prototype.$new = function(isolated, parent) {
 	var child;
-	if (isolated) {
+    parent = parent || this;
+
+    if (isolated) {
 		child = new Scope();
-	} else {
+        child.$root = parent.$root;
+        child.$$asyncQueue = parent.$$asyncQueue;
+        child.$$postDigestQueue = parent.$$postDigestQueue;
+        child.$$applyAsyncQueue = parent.$$applyAsyncQueue;
+    } else {
 		var ChildScope = function() { };
 		ChildScope.prototype = this;
 		child = new ChildScope();
 	}
-	this.$$children.push(child);
+    parent.$$children.push(child);
 	child.$$watchers = [];
 	child.$$children = [];
+    child.$parent = parent; // когда уничтожается, сам удаляет себя из списка дочерних элементов родителя
 	return child;
 };
 
@@ -161,4 +180,40 @@ Scope.prototype.$$everyScope = function(fn) {
 	} else {
 		return false;
 	}
+};
+
+Scope.prototype.$applyAsync = function(expr) {
+    var self = this;
+    self.$$applyAsyncQueue.push(function() {
+        self.$eval(expr);
+    });
+    if (self.$root.$$applyAsyncId === null) {
+        self.$root.$$applyAsyncId = setTimeout(function() {
+            self.$apply(_.bind(self.$$flushApplyAsync, self));
+        }, 0);
+    }
+};
+
+
+Scope.prototype.$$flushApplyAsync = function() {
+    while (this.$$applyAsyncQueue.length) {
+        try {
+            this.$$applyAsyncQueue.shift()();
+        } catch (e) {
+            console.error(e);
+        }
+    }
+    this.$root.$$applyAsyncId = null;
+};
+
+
+Scope.prototype.$destroy = function() {
+    if (this.$parent) {
+        var siblings = this.$parent.$$children;
+        var indexOfThis = siblings.indexOf(this);
+        if (indexOfThis >= 0) {
+            siblings.splice(indexOfThis, 1);
+        }
+    }
+    this.$$watchers = null;
 };

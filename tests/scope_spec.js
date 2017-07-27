@@ -1,7 +1,4 @@
-
 describe("[Scope]", function(){
-
-
 	describe("[Destroying A Watch]", function(){
 		it("allows destroying a $watch with a removal function", function() {
 			var scope = new Scope();
@@ -49,7 +46,6 @@ describe("[Scope]", function(){
 			scope.$digest();
 			expect(watchCalls).toEqual(['first', 'second', 'third', 'first', 'third']);
 		});
-
 	});
 
 	describe("[Short-Circuiting The Digest When The Last Watch Is Clean]", function(){
@@ -75,33 +71,27 @@ describe("[Scope]", function(){
 			expect(watchExecutions).toBe(301);
 		});
 	});
-
 });
 
-
 describe("[Inheritance]", function() {
-
 	it("inherits the parent's properties", function() {
-		var parent = new Scope();
+		var parent = new Scope(); // этого в книге нет, видимо опечатка
 		parent.aValue = [1, 2, 3];
 		var child = parent.$new();
 		expect(child.aValue).toEqual([1, 2, 3]);
 	});
-
 	it("does not cause a parent to inherit its properties", function() {
 		var parent = new Scope();
 		var child = parent.$new();
 		child.aValue = [1, 2, 3];
 		expect(parent.aValue).toBeUndefined();
 	});
-
 	it("inherits the parent's properties whenever they are defined", function() {
 		var parent = new Scope();
 		var child = parent.$new();
 		parent.aValue = [1, 2, 3];
 		expect(child.aValue).toEqual([1, 2, 3]);
 	});
-
 	it("can manipulate a parent scope's property", function() {
 		var parent = new Scope();
 		var child = parent.$new();
@@ -110,7 +100,6 @@ describe("[Inheritance]", function() {
 		expect(child.aValue).toEqual([1, 2, 3, 4]);
 		expect(parent.aValue).toEqual([1, 2, 3, 4]);
 	});
-
 	it("can watch a property in the parent", function() {
 		var parent = new Scope();
 		var child = parent.$new();
@@ -129,7 +118,6 @@ describe("[Inheritance]", function() {
 		child.$digest();
 		expect(child.counter).toBe(2);
 	});
-
 	it("can be nested at any depth", function() {
 		var a = new Scope();
 		var aa = a.$new();
@@ -148,8 +136,6 @@ describe("[Inheritance]", function() {
 		expect(aa.anotherValue).toBeUndefined();
 		expect(aaa.anotherValue).toBeUndefined();
 	});
-
-
 	it("shadows a parent's property with the same name", function() {
 		var parent = new Scope();
 		var child = parent.$new();
@@ -158,7 +144,6 @@ describe("[Inheritance]", function() {
 		expect(child.name).toBe('Jill');
 		expect(parent.name).toBe('Joe');
 	});
-
 	it("does not shadow members of parent scope's attributes", function() {
 		var parent = new Scope();
 		var child = parent.$new();
@@ -167,8 +152,6 @@ describe("[Inheritance]", function() {
 		expect(child.user.name).toBe('Jill');
 		expect(parent.user.name).toBe('Jill');
 	});
-
-
 	it("does not shadow members of parent scope's attributes", function() {
 		var parent = new Scope();
 		var child = parent.$new();
@@ -177,8 +160,6 @@ describe("[Inheritance]", function() {
 		expect(child.user.name).toBe('Jill');
 		expect(parent.user.name).toBe('Jill');
 	});
-
-
 	// лечится добавлением child.$$watchers = []; в $new
 	it("does not digest its parent(s)", function() {
 		var parent = new Scope();
@@ -250,7 +231,6 @@ describe("[Inheritance]", function() {
 			parent.aValue = 'abc';
 			expect(child.aValue).toBeUndefined();
 		});
-
 		it("cannot watch parent attributes when isolated", function() {
 			var parent = new Scope();
 			var child = parent.$new(true);
@@ -264,8 +244,119 @@ describe("[Inheritance]", function() {
 			child.$digest();
 			expect(child.aValueWas).toBeUndefined();
 		});
-
+        it("digests its isolated children", function() {
+            var parent = new Scope();
+            var child = parent.$new(true);
+            child.aValue = 'abc';
+            child.$watch(
+                function(scope) { return scope.aValue; },
+                function(newValue, oldValue, scope) {
+                    scope.aValueWas = newValue;
+                }
+            );
+            parent.$digest();
+            expect(child.aValueWas).toBe('abc');
+        });
+        it("digests from root on $apply when isolated", function() {
+            var parent = new Scope();
+            var child = parent.$new(true);
+            var child2 = child.$new();
+            parent.aValue = 'abc';
+            parent.counter = 0;
+            parent.$watch(
+                function(scope) { return scope.aValue; },
+                function(newValue, oldValue, scope) {
+                    scope.counter++;
+                }
+            );
+            child2.$apply(function(scope) { });
+            expect(parent.counter).toBe(1);
+        });
+        it("schedules a digest from root on $evalAsync when isolated", function(done) {
+            var parent = new Scope();
+            var child = parent.$new(true);
+            var child2 = child.$new();
+            parent.aValue = 'abc';
+            parent.counter = 0;
+            parent.$watch(
+                function(scope) { return scope.aValue; },
+                function(newValue, oldValue, scope) {
+                    scope.counter++;
+                }
+            );
+            child2.$evalAsync(function(scope) { });
+            setTimeout(function() {
+                expect(parent.counter).toBe(1);
+                done();
+            }, 50);
+        });
+        it("executes $evalAsync functions on isolated scopes", function(done) {
+            var parent = new Scope();
+            var child = parent.$new(true);
+            child.$evalAsync(function(scope) {
+                scope.didEvalAsync = true;
+            });
+            setTimeout(function() {
+            	expect(child.didEvalAsync).toBe(true);
+                done();
+            }, 50);
+        });
+        it("executes $$postDigest functions on isolated scopes", function() {
+            var parent = new Scope();
+            var child = parent.$new(true);
+            child.$$postDigest(function() {
+                child.didPostDigest = true;
+            });
+            parent.$digest();
+            expect(child.didPostDigest).toBe(true);
+        });
 	});
+
+    describe("[Substituting The Parent Scope]", function() {
+        it('can take some other scope as the parent', function() {
+            var prototypeParent = new Scope();
+            var hierarchyParent = new Scope();
+            var child = prototypeParent.$new(false, hierarchyParent);
+            prototypeParent.a = 42;
+            expect(child.a).toBe(42);
+            child.counter = 0;
+            child.$watch(
+                function(scope) {
+                    scope.counter++;
+                    return scope.a; // этой строчки не хватает в книге для прохождения теста
+				}
+            );
+            prototypeParent.$digest();
+            expect(child.counter).toBe(0);
+            hierarchyParent.$digest();
+            expect(child.counter).toBe(2);
+        });
+    });
+
+    describe("[Destroying Scopes]", function() {
+        it("is no longer digested when $destroy has been called", function() {
+            var parent = new Scope();
+            var child = parent.$new();
+            child.aValue = [1, 2, 3];
+            child.counter = 0;
+            child.$watch(
+                function(scope) { return scope.aValue; },
+                function(newValue, oldValue, scope) {
+                    scope.counter++;
+                },
+                true
+            );
+            parent.$digest();
+            expect(child.counter).toBe(1);
+            child.aValue.push(4);
+            parent.$digest();
+            expect(child.counter).toBe(2);
+            child.$destroy();
+            child.aValue.push(5);
+            parent.$digest();
+            expect(child.counter).toBe(2);
+        });
+    });
 });
 
 
