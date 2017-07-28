@@ -15,12 +15,22 @@ function setupModuleLoader(window) {
         //     ['constant', ['aConstant', 42]]
         // ]
         var invokeQueue = [];
+
+        /**
+         * Функция предварительно конфигурирует метод создания определенного типа компонента приложения
+         * */
+        var invokeLater = function(method) {
+            return function() {
+                invokeQueue.push([method, arguments]);
+                return moduleInstance;
+            };
+        };
+
         var moduleInstance = {
             name: name,
             requires: requires,
-            constant: function(key, value) {
-                invokeQueue.push(['constant', [key, value]]);
-            },
+            constant: invokeLater('constant'),
+            provider: invokeLater('provider'),
             _invokeQueue: invokeQueue
         };
         modules[name] = moduleInstance;
