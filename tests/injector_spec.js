@@ -68,6 +68,7 @@
                 angular.module('myModule', ['myOtherModule']);
                 angular.module('myOtherModule', ['myModule']);
                 createInjector(['myModule']);
+                // Error loads each module only once' has no expectations.
                 // тут просто stack maximum error будет если что
             });
 
@@ -128,7 +129,6 @@
             });
         })
 
-
         describe('annotate', function () {
             describe('[Array-Style Dependency Annotation]', function () {
                 it('returns the $inject annotation of a function when it has one', function() {
@@ -184,6 +184,7 @@
                     }).toThrow();
                 });
             });
+
             describe('[Integrating Annotation with Invocation]', function () {
                 it('invokes an array-annotated function with dependency injection', function() {
                     var module = angular.module('myModule', []);
@@ -204,6 +205,7 @@
             });
 
             describe('[ Instantiating Objects with Dependency Injection]', function () {
+
                 it('instantiates an annotated constructor function', function() {
                     var module = angular.module('myModule', []);
                     module.constant('a', 1);
@@ -265,7 +267,6 @@
 
     describe('[Providers]', function() {
 
-
         describe('[The Simplest Possible Provider: An Object with A $get Method]', function() {
             it('allows registering a provider and uses its $get', function() {
                 var module = angular.module('myModule', []);
@@ -279,7 +280,6 @@
                 expect(injector.get('a')).toBe(42);
             });
         })
-
 
         describe('[Injecting Dependencies To The $get Method]', function() {
             it('injects the $get method of a provider', function() {
@@ -307,7 +307,6 @@
                 var injector = createInjector(['myModule']);
                 expect(injector.get('b')).toBe(3);
             });
-
         })
 
         describe('[Making Sure Everything Is A Singleton]', function() {
@@ -355,7 +354,6 @@
                     injector.get('a');
                 }).toThrowError('Circular dependency found: a <- c <- b <- a');
             });
-
         })
 
         describe('[Provider Constructors]', function() {
@@ -376,9 +374,7 @@
                 var injector = createInjector(['myModule']);
                 expect(injector.get('a')).toBe(3);
             });
-
         })
-
 
         describe('[Two Injectors: The Provider Injector and The Instance]', function() {
             it('injects another provider to a provider constructor function', function() {
@@ -396,17 +392,15 @@
                 expect(injector.get('a')).toBe(2);
             });
 
-
-
-            // тут далее вся соль
-
-
+            // далее идут идеологические ограничения касаемых компонет провайдеров
 
             it('does not inject an instance to a provider constructor function', function() {
                 var module = angular.module('myModule', []);
                 module.provider('a', function AProvider() {
                     this.$get = function() { return 1; };
                 });
+
+                // 1 при регистрации конструкт-провайдера, тот не может использовать "инстансы" других конструкт-провайдеров
                 module.provider('b', function BProvider(a) {
                     this.$get = function() { return a; };
                 });
@@ -414,11 +408,14 @@
                     createInjector(['myModule']);
                 }).toThrow();
             });
+
             it('does not inject a provider to a $get function', function() {
                 var module = angular.module('myModule', []);
                 module.provider('a', function AProvider() {
                     this.$get = function() { return 1; };
                 });
+
+                // 2 при инстанцировании конструкт-провайдеров, те могут использовать только такие же инстансы конструкт-провайдеров, но не самих конструкт-провайдеров
                 module.provider('b', function BProvider() {
                     this.$get = function(aProvider) { return aProvider.$get(); };
                 });
@@ -433,6 +430,8 @@
                     this.$get = function() { return 1; }
                 });
                 var injector = createInjector(['myModule']);
+
+                // видимо конструктор провайдера могут получить только другие провайдеры
                 expect(function() {
                     injector.invoke(function(aProvider) { });
                 }).toThrow();
@@ -444,33 +443,27 @@
                 });
                 var injector = createInjector(['myModule']);
                 expect(function() {
+                    // видимо конструктор провайдера могут получить только другие провайдеры
                     injector.get('aProvider');
                 }).toThrow();
             });
 
+            // таким образом обнаруживается явное разделение между двумя типами инъекций
+            // инъекция происходящая между конструкторами одних и других провайдеров, работающая только с конструкт-провайдерами
+            // инъекция происходящая между методами $get и внешним injector API работающая только с instances конструкт-провайдеров
         });
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        describe('[Provider Constructors]', function() {})
-        describe('[Provider Constructors]', function() {})
-
-
-
+        describe('[Unshifting Constants in The Invoke Queue]', function() {
+            it('registers constants first to make them available to providers', function() {
+                var module = angular.module('myModule', []);
+                module.provider('a', function AProvider(b) {
+                    this.$get = function() { return b; };
+                });
+                module.constant('b', 42);
+                var injector = createInjector(['myModule']);
+                expect(injector.get('a')).toBe(42);
+            });
+        })
     })
 })(window, describe = window.describe, beforeEach = window.beforeEach, it = window.it, expect = window.expect);
 

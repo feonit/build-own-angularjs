@@ -1,3 +1,6 @@
+
+
+
 /**
  *
  * @param modulesToLoad
@@ -13,7 +16,8 @@ function createInjector(modulesToLoad, strictDi) {
      * */
     var providerCache = {};
     /**
-     * Запись модулей, которые уже были загружены, чтобы избежать рекурсивных вызовов, когда модули имеют круговые зависимости
+     * Запись модулей, которые уже были загружены (в текущем экземпляре инжектора),
+     * чтобы избежать рекурсивных вызовов, когда модули имеют циркулярные зависимости
      * */
     var loadedModules = {};
 
@@ -29,12 +33,15 @@ function createInjector(modulesToLoad, strictDi) {
             if (key === 'hasOwnProperty') {
                 throw 'hasOwnProperty is not a valid constant name!';
             }
+            // Constants are a special case in that we put a reference to them to both the provider and instance caches. Constants are available everywhere:
+            providerCache[key] = value;
             instanceCache[key] = value;
         },
         provider: function(key, provider) {
             // чтобы отличать функцию конструктор от объекта {$get: function(){}}
             if (_.isFunction(provider)) {
-                provider = instantiate(provider);
+                // таким разграничением достигается идеологическое условие, что только провайдеры имеют доступ к другим провайдерам
+                provider = providerInjector.instantiate(provider);
             }
             // чтобы отличать провайдер от его результата регистрации
             providerCache[key + 'Provider'] = provider;
@@ -49,27 +56,19 @@ function createInjector(modulesToLoad, strictDi) {
     /** Маркер, чтобы прдупредить циркулярные зависимости*/
     var INSTANTIATING = { };
 
-    /**
-     * Вызывает функцию, с поддержкой инжекции
-     * @param fn
-     * @param self
-     * @param {Object} locals на случай, если нужно переписать какой-то аргумент-инъекцию или он попросту еще не зарегистрирован инжектором
-     * */
-    function invoke(fn, self, locals) {
-        var args = _.map(annotate(fn), function(token) {
-            if (_.isString(token)) {
-                return locals && locals.hasOwnProperty(token) ?
-                    locals[token] :
-                    getService(token);
-            } else {
-                throw 'Incorrect injection token! Expected a string, got '+token;
-            }
-        });
-        if (_.isArray(fn)) {
-            fn = _.last(fn);
-        }
-        return fn.apply(self, args);
-    }
+    // provider injector works with the provider cache
+    var providerInjector = createInternalInjector(providerCache, function() {
+        //  Its fallback function will throw an exception letting the user know the dependency they’re looking for doesn’t exist
+        throw 'Unknown provider: '+path.join(' <- ');
+    });
+
+    // The instance injector works with the instance cache
+    // It falls back to a function that looks for a provider and uses it to construct the dependency
+    var instanceInjector = createInternalInjector(instanceCache, function(name) {
+        var provider = providerInjector.get(name + 'Provider');
+        return instanceInjector.invoke(provider.$get, provider);
+    });
+
     /**
      * Аннотирование функции, экспортировать имена зависимостей используя три разных метода
      * */
@@ -93,58 +92,98 @@ function createInjector(modulesToLoad, strictDi) {
             });
         }
     }
-    /**
-     * Т.к. конструкторы ничего не возвращают, invoke ничего не вернет, а должен вернуть
-     * новый экземляр, для этих целей создан это метод
-     * */
-    function instantiate(Type, locals) {
-        var UnwrappedType = _.isArray(Type) ? _.last(Type) : Type;
-        // главное не потерять прототип
-        var instance = Object.create(UnwrappedType.prototype);
 
-        // и имя конструктора (добавлю позже)
-        // return new (Function.prototype.bind.apply(ctor, args))();
-        invoke(Type, instance, locals);
-        return instance;
-    }
     /**
-     * Спобос получения компонента приложения из хранилища
-     * */
-    function getService(name) {
-        if (instanceCache.hasOwnProperty(name)) {
-            if (instanceCache[name] === INSTANTIATING) {
-                throw new Error('Circular dependency found: ' +
-                    name + ' <- ' + path.join(' <- '));
-            }
-            return instanceCache[name];
-            // чтобы вернуть сам провайдер aProvider например а не его instance "a"
-        } else if (providerCache.hasOwnProperty(name)) {
-            return providerCache[name];
-        } else if (providerCache.hasOwnProperty(name + 'Provider')) {
-            path.unshift(name);
-            instanceCache[name] = INSTANTIATING;
-            try {
-                var provider = providerCache[name + 'Provider'];
-                var instance = instanceCache[name] = invoke(provider.$get);
-                return instance;
-            } finally {
-                path.shift();
-                if (instanceCache[name] === INSTANTIATING) {
-                    delete instanceCache[name];
+     *
+     * @param cache - Кеш для поиска зависимостей
+     * @param factoryFn - Коллбек, когда нет ничего в кеше
+     */
+    function createInternalInjector(cache, factoryFn) {
+
+        /**
+         * Спобос получения компонента приложения из хранилища
+         * */
+        function getService(name) {
+            if (cache.hasOwnProperty(name)) {
+                if (cache[name] === INSTANTIATING) {
+                    throw new Error('Circular dependency found: ' +
+                        name + ' <- ' + path.join(' <- '));
+                }
+                return cache[name];
+            } else {
+                path.unshift(name);
+                cache[name] = INSTANTIATING;
+                try {
+                    return (cache[name] = factoryFn(name));
+                } finally {
+                    path.shift();
+                    if (cache[name] === INSTANTIATING) {
+                        delete cache[name];
+                    }
                 }
             }
+        }
+        /**
+         * Вызывает функцию, с поддержкой инжекции
+         * @param {Function} fn - вызываемая функция
+         * @param {Object} self? - опциональный контекст
+         * @param {Object} locals на случай, если нужно переписать какой-то аргумент-инъекцию или он попросту еще не зарегистрирован инжектором
+         * */
+        function invoke(fn, self, locals) {
+            var args = _.map(annotate(fn), function(token) {
+                if (_.isString(token)) {
+                    return locals && locals.hasOwnProperty(token) ?
+                        locals[token] :
+                        getService(token);
+                } else {
+                    throw 'Incorrect injection token! Expected a string, got '+token;
+                }
+            });
+            if (_.isArray(fn)) {
+                fn = _.last(fn);
+            }
+            return fn.apply(self, args);
+        }
+        /**
+         * Т.к. конструкторы без ключевого слова new ничего не возвращают, invoke так же ничего не вернет.
+         * Метод возвращает экземпляр провайдера
+         * */
+        function instantiate(Type, locals) {
+            // если объявленно ввиде массива, то сам конструктор будет именно последним
+            var UnwrappedType = _.isArray(Type) ? _.last(Type) : Type;
+            // главное не потерять прототип
+            var instance = Object.create(UnwrappedType.prototype);
+
+            // и имя конструктора (добавлю позже)
+            // return new (Function.prototype.bind.apply(ctor, args))();
+            invoke(Type, instance, locals);
+            return instance;
+        }
+
+        return {
+            has: function(name) {
+                return cache.hasOwnProperty(name) ||
+                    providerCache.hasOwnProperty(name + 'Provider');
+            },
+            get: getService,
+            annotate: annotate,
+            invoke: invoke,
+            instantiate: instantiate
         }
     }
 
     // для каждой зависимости находится модуль, каждый из которых имеет собственные зависимости и очередь
     _.forEach(modulesToLoad, function loadModule(moduleName) {
+        // модули, которые уже прошли процесс загрузки не нуждаются в этом повторно
         if (!loadedModules.hasOwnProperty(moduleName)) {
             loadedModules[moduleName] = true;
 
+            // подули хранятся внутри angular
             var module = angular.module(moduleName);
 
             // пока что все равно, какой список первый requires или _invokeQueue
             _.forEach(module.requires, loadModule);
+            // регистрация компонент текущего модуля
             _.forEach(module._invokeQueue, function (invokeArgs) {
                 var method = invokeArgs[0];
                 var args = invokeArgs[1];
@@ -153,16 +192,8 @@ function createInjector(modulesToLoad, strictDi) {
         }
     });
 
-    return {
-        has: function(key) {
-            return instanceCache.hasOwnProperty(key) ||
-                providerCache.hasOwnProperty(key + 'Provider');
-        },
-        get: getService,
-        annotate: annotate,
-        invoke: invoke,
-        instantiate: instantiate
-    };
+    // в итоге, инжектор с которым можно работать по API:
+    return instanceInjector;
 }
 
 

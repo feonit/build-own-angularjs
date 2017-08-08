@@ -8,9 +8,10 @@ function setupModuleLoader(window) {
         if (name === 'hasOwnProperty') {
             throw 'hasOwnProperty is not a valid module name';
         }
-        // очередь вызовов по регистрации компонентов
-        // представляет ссобой массив массивов, представляет ссобой данные:
-        // имя типа компонента приложения к аргументам для его регистрации
+        // Данные необходимые для создания очереди вызовов регистраций компонентов
+        // Представляют собой массив массивов:
+        // первый элемент подмассива - имя типа компонента
+        // второй элемент подмассива - аргументы для вызова регистрации компонента
         // [
         //     ['constant', ['aConstant', 42]]
         // ]
@@ -19,9 +20,12 @@ function setupModuleLoader(window) {
         /**
          * Функция предварительно конфигурирует метод создания определенного типа компонента приложения
          * */
-        var invokeLater = function(method) {
+        var invokeLater = function(method, arrayMethod) {
             return function() {
-                invokeQueue.push([method, arguments]);
+                // данные о компоненте отправляются в очередь на регистрацию
+                // в очереди константы попадают первыми, чтобы провайдеры могли ими пользоваться
+                invokeQueue[arrayMethod || 'push']([method, arguments]);
+                // для обеспечения возможности цепочки вызовов
                 return moduleInstance;
             };
         };
@@ -29,7 +33,7 @@ function setupModuleLoader(window) {
         var moduleInstance = {
             name: name,
             requires: requires,
-            constant: invokeLater('constant'),
+            constant: invokeLater('constant', 'unshift'),
             provider: invokeLater('provider'),
             _invokeQueue: invokeQueue
         };
