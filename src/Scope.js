@@ -39,6 +39,13 @@ Scope.prototype.$watch = function(watchFn, listenerFn, valueEq) {
 	};
 };
 
+/**
+ * Метод проверки на изменение старого и нового значения, если значение не изменилось возвращается true, иначе false
+ * @param {T} newValue
+ * @param {T} oldValue
+ * @param {boolean} valueEq - специальная проверка тех значений, что являются объектом или массивом
+ * @return {boolean} - значение изменилось или нет
+ * */
 Scope.prototype.$$areEqual = function(newValue, oldValue, valueEq) {
 	if (valueEq) {
 		return _.isEqual(newValue, oldValue);
@@ -49,6 +56,15 @@ Scope.prototype.$$areEqual = function(newValue, oldValue, valueEq) {
 	}
 };
 
+/**
+ * Пробегает один раз все watch функции в текущей области, кроме одного случая: если итерируемый вотчер был помечен
+ * предыдущим вызовом метода как последний вотчер обнаруживший свое измененное значение. Понятно, что после последнего
+ * вотчера с изменением, остались вотчеры без изменений. Соответственно нет смысла их вызывать повторно. Это момент оптимизации.
+ *
+ * Если значение изменилось, вызываются слушатели.
+ * То же самое происходит для всех дочерних областей, кроме тех чей родитель оказался без изменений. Он помечается флагом continueLoop.
+ * @return {boolean} было ли хоть одно изменение наблюдаемых полей или нет
+ * */
 Scope.prototype.$$digestOnce = function() {
 	var self = this;
 	var continueLoop = true;
@@ -67,6 +83,8 @@ Scope.prototype.$$digestOnce = function() {
 						dirty = true;
 					} else if (self.$$lastDirtyWatch === watcher) {
 						continueLoop = false;
+
+						// Iteratee functions may exit iteration early by explicitly returning false.
 						return false;
 					}
 				}
@@ -79,7 +97,11 @@ Scope.prototype.$$digestOnce = function() {
 	return dirty;
 };
 
+/**
+ * В цикле запускает $$digestOnce до тех пор пока есть изменения
+ * */
 Scope.prototype.$digest = function() {
+	/** Максимальное количество итераций */
 	var ttl = 10;
 	var dirty;
     this.$root.$$lastDirtyWatch = null;
@@ -120,6 +142,11 @@ Scope.prototype.$eval = function(expr, locals) {
 	return expr(this, locals);
 };
 
+/**
+ * То же что и $digest, но выполняется всегда на корневой области, несмотря на то, что вызывается на любой области
+ * в иерархии.
+ * @param {function} expr, функция выполняемая перед запуском digest
+ * */
 Scope.prototype.$apply = function(expr) {
 	try {
 		this.$beginPhase("$apply");
@@ -172,6 +199,11 @@ Scope.prototype.$new = function(isolated, parent) {
 	return child;
 };
 
+/**
+ * @param {function} fn - функция, анализирующая текущую область и возвращающая булево значение,
+ * сигнализирующая о том, есть ли смысл продолжать её вызов иерархически по дочерним областям
+ * @return {boolean}
+ * */
 Scope.prototype.$$everyScope = function(fn) {
 	if (fn(this)) {
 		return this.$$children.every(function(child) {
